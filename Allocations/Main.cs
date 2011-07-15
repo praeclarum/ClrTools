@@ -83,7 +83,7 @@ namespace Allocations
 					{
 						var t = i.Operand as TypeReference;
 						if (t != null) {
-							ArrayAllocations [t] = i.SequencePoint;
+							ArrayAllocations [t] = GetSequencePoint (i);
 						}
 					}
 						break;
@@ -91,15 +91,26 @@ namespace Allocations
 					{
 						var m = i.Operand as MethodReference;
 						if (m != null && !m.DeclaringType.IsValueType) {
-							Allocations [m.DeclaringType] = i.SequencePoint;
+							Allocations [m.DeclaringType] = GetSequencePoint (i);
 						}
 					}
 						break;
 					}
 				}				
 			}
+			
+			static SequencePoint GetSequencePoint (Instruction i)
+			{
+				var p = i;
+				var pt = i.SequencePoint;
+				while (pt == null && p != null) {
+					pt = p.SequencePoint;
+					p = p.Previous;
+				}
+				return pt;
+			}
 
-			public static bool MethodsAreShared (TypeDefinition t, TypeDefinition baseType)
+			static bool MethodsAreShared (TypeDefinition t, TypeDefinition baseType)
 			{				
 				if (t == baseType) return false;
 				if (baseType.IsInterface) {
@@ -130,10 +141,20 @@ namespace Allocations
 				}
 				Console.ForegroundColor = ConsoleColor.DarkRed;
 				foreach (var a in Allocations.OrderBy (k => k.Key.Name)) {
-					o.WriteLine ("{{{0}}}", a.Key.FullName);
+					if (a.Value != null) {
+						o.WriteLine ("{1}:{2}: {{{0}}}", a.Key.FullName, a.Value.Document.Url, a.Value.StartLine);
+					}
+					else {
+						o.WriteLine ("{{{0}}}", a.Key.FullName);
+					}
 				}
 				foreach (var a in ArrayAllocations.OrderBy (k => k.Key.Name)) {
-					o.WriteLine ("[{0}]", a.Key.FullName);
+					if (a.Value != null) {
+						o.WriteLine ("{1}:{2}: [{0}]", a.Key.FullName, a.Value.Document.Url, a.Value.StartLine);
+					}
+					else {
+						o.WriteLine ("[{0}]", a.Key.FullName);
+					}
 				}
 				
 				Console.ResetColor ();
