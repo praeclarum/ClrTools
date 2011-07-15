@@ -50,10 +50,20 @@ namespace Allocations
 		{
 			public MethodDefinition Def;
 			public MethodInfo Caller;
-			public SequencePoint Point;
 			
-			public Dictionary<TypeReference, SequencePoint> Allocations = new Dictionary<TypeReference, SequencePoint> ();
-			public Dictionary<TypeReference, SequencePoint> ArrayAllocations = new Dictionary<TypeReference, SequencePoint> ();
+			public enum AllocKind {
+				NewObject,
+				Box,
+				NewArray,
+			}
+			
+			public class Alloc {
+				public TypeReference Type;
+				public AllocKind Kind;
+				public SequencePoint Point;
+			}
+			
+			public List<Alloc> Allocations = new List<Alloc> ();
 			
 			public void Scan (Action<MethodReference, MethodInfo> markMethod)
 			{
@@ -79,11 +89,19 @@ namespace Allocations
 						
 					}
 						break;
+					case Code.Box:
+					{
+						var t = i.Operand as TypeReference;
+						if (t != null) {
+							Allocations.Add (new Alloc { Type = t, Kind = AllocKind.Box, Point = GetSequencePoint (i) });
+						}
+					}
+						break;
 					case Code.Newarr:
 					{
 						var t = i.Operand as TypeReference;
 						if (t != null) {
-							ArrayAllocations [t] = GetSequencePoint (i);
+							Allocations.Add (new Alloc { Type = t, Kind = AllocKind.NewArray, Point = GetSequencePoint (i) });
 						}
 					}
 						break;
@@ -91,7 +109,7 @@ namespace Allocations
 					{
 						var m = i.Operand as MethodReference;
 						if (m != null && !m.DeclaringType.IsValueType) {
-							Allocations [m.DeclaringType] = GetSequencePoint (i);
+							Allocations.Add (new Alloc { Type = m.DeclaringType, Kind = AllocKind.NewObject, Point = GetSequencePoint (i) });
 						}
 					}
 						break;
@@ -127,7 +145,7 @@ namespace Allocations
 			
 			public void Display (TextWriter o)
 			{
-				if (Allocations.Count == 0 && ArrayAllocations.Count == 0) return;
+				if (Allocations.Count == 0) return;
 				
 				
 				o.WriteLine (new string ('-', Def.FullName.Length));
@@ -140,21 +158,22 @@ namespace Allocations
 					p = p.Caller;
 				}
 				Console.ForegroundColor = ConsoleColor.DarkRed;
-				foreach (var a in Allocations.OrderBy (k => k.Key.Name)) {
-					if (a.Value != null) {
-						o.WriteLine ("{1}:{2}: {{{0}}}", a.Key.FullName, a.Value.Document.Url, a.Value.StartLine);
+				foreach (var a in Allocations.OrderBy (k => k.Point != null ? k.Point.StartLine : 0)) {
+					if (a.Point != null) {
+						o.Write ("{0}:{1}: ", a.Point.Document.Url, a.Point.StartLine);
 					}
-					else {
-						o.WriteLine ("{{{0}}}", a.Key.FullName);
+					switch (a.Kind) {
+					case AllocKind.NewObject:
+						o.Write ("new ");
+						break;
+					case AllocKind.NewArray:
+						o.Write ("new[] ");
+						break;
+					case AllocKind.Box:
+						o.Write ("box ");
+						break;
 					}
-				}
-				foreach (var a in ArrayAllocations.OrderBy (k => k.Key.Name)) {
-					if (a.Value != null) {
-						o.WriteLine ("{1}:{2}: [{0}]", a.Key.FullName, a.Value.Document.Url, a.Value.StartLine);
-					}
-					else {
-						o.WriteLine ("[{0}]", a.Key.FullName);
-					}
+					o.WriteLine (a.Type.FullName);
 				}
 				
 				Console.ResetColor ();
